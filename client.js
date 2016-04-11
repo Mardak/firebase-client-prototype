@@ -11,7 +11,8 @@ class FirebaseClient {
         console.warn("Reconnecting with open event stream");
         this.close("reconnect");
       }
-      this._sse = new EventSource(this.url + ".json");
+      // Fetch only newest records to avoid fetching everything.
+      this._sse = new EventSource(this.url + ".json?orderBy=\"$priority\"&limitToLast=2");
       for (let eventName of this.EVENTS) {
         this._sse.addEventListener(eventName, this._onEvent.bind(this, eventName));
       }
@@ -67,9 +68,9 @@ class FirebaseClient {
     return this.url + "/" + path + ".json";
   }
 
-  get(path) {
+  get(path, query) {
     let url = this._makeUrl(path);
-    return this._request("GET", url);
+    return this._request("GET", `${url}?${query}`);
   }
 
   put(path, body) {
@@ -78,6 +79,10 @@ class FirebaseClient {
 
   patch(path, body) {
     return this._update("PATCH", path, body);
+  }
+
+  post(path, body) {
+    return this._update("POST", path, body);
   }
 
   delete(path) {
@@ -93,7 +98,9 @@ class FirebaseClient {
       throw new Error("JSON body expected");
     }
     let url = this._makeUrl(path);
-    return this._request("PUT", url, JSON.stringify(body));
+    // Include the server timestamp in the special priority field on new records.
+    body[".priority"] = { ".sv": "timestamp" };
+    return this._request(method, url, JSON.stringify(body));
   }
 
   _request(method, url, body) {
@@ -141,7 +148,7 @@ FirebaseClient.prototype.EVENTS = ['put', 'patch'];
  * sample code
  */
 
-let baseUrl = 'https://blistering-inferno-6839.firebaseio.com/client-test';
+let baseUrl = 'https://blinding-fire-8842.firebaseio.com/client-test';
 
 let client = new FirebaseClient(baseUrl);
 client.on("put", write.bind(null, "->put"));
@@ -150,26 +157,16 @@ client.on("close", write.bind(null, "(close)"));
 
 function write() {
   let el = document.getElementById("output");
-  let c = el.textContent;
-  c += "\n";
+  let c = new Date().toLocaleTimeString() + ": ";
   for (let a of arguments) {
     if (! a || typeof a != "string") {
       a = JSON.stringify(a);
     }
     c += a + " ";
   }
-  el.textContent = c;
+  el.textContent = `${c}\n${el.textContent}`;
 }
 
 client.connect().then(() => {
   write("connected", client._sse.readyState);
-  return client.put("/foo", {test: Math.random()});
-}).then(() => {
-  write("did put /foo");
-  return client.put("/bar", {test: Math.random()});
-}).then(() => {
-  write("did put /bar");
-  return client.get("/foo");
-}).then((body) => {
-  write("got from /foo:", body);
 });

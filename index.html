@@ -3,10 +3,111 @@
 <head>
   <title>Test page</title>
   <script src="./client.js"></script>
+  <style>
+p {
+  margin: 0;
+}
+#chat,
+#output,
+#page {
+  border: 1px solid black;
+  max-height: 200px;
+  min-height: 1em;
+  margin-bottom: 1em;
+  overflow: auto;
+}
+  </style>
 </head>
 <body>
+  <div>
+    <input id="room-name"/>
+    <button id="set-name">set room name</button>
+  </div>
+  <div>
+    <input id="message"/>
+    <button id="add-chat">add chat</button>
+    <button id="add-page">add page</button>
+  </div>
+  <div>
+    <button id="load-chat">load all chats</button>
+    <button id="load-page">load all pages</button>
+  </div>
+  <br/>
 
   Results:
   <pre id="output"></pre>
+  Chat messages:
+  <div id="chat"></div>
+  Pages:
+  <div id="page"></div>
+
+  <script>
+document.getElementById("set-name").addEventListener("click", () => {
+  let {value} = document.getElementById("room-name");
+  console.log("set room", value);
+  client.put("roomName", { value });
+});
+
+function handleAdd(event) {
+  let type = event.target.id.split("-")[1];
+  let {value} = document.getElementById("message");
+  console.log("adding", type, value);
+  client.post("", { type, value });
+}
+document.getElementById("add-chat").addEventListener("click", handleAdd);
+document.getElementById("add-page").addEventListener("click", handleAdd);
+
+function handleLoad(event) {
+  let type = event.target.id.split("-")[1];
+  console.log("loading", type);
+  client.get("", `format=export&orderBy="type"&equalTo="${type}"`).then(records => {
+    document.getElementById(type).textContent = "";
+    Object.values(records).sort((a, b) => {
+      return a[".priority"] - b[".priority"];
+    }).forEach(insertEntry);
+  });
+}
+document.getElementById("load-chat").addEventListener("click", handleLoad);
+document.getElementById("load-page").addEventListener("click", handleLoad);
+
+function insertEntry(record) {
+  let {type, value} = record;
+  console.log("insert", type, value);
+  if (type.search(/^(chat|page)$/) == -1) {
+    return;
+  }
+
+  let time = new Date(record[".priority"]).toLocaleString();
+  let content = document.createElement("p");
+  content.textContent = `${value} (${time})`;
+  let parent = document.getElementById(type);
+  parent.insertBefore(content, parent.firstChild);
+}
+
+function processRecord(path, record) {
+  console.log("process", path, record);
+  switch (path) {
+    case "":
+      // Recursively process initial load.
+      Object.entries(record).forEach(([path, record]) => {
+        processRecord(path, record);
+      });
+      break;
+
+    case "roomName":
+      document.getElementById("room-name").value = record.value;
+      break;
+
+    default:
+      insertEntry(record);
+      break;
+  }
+}
+
+client.on("put", ({ data, path }) => {
+  // Remove the leading "/" character.
+  processRecord(path.slice(1), data);
+});
+  </script>
 </body>
 </html>
