@@ -120,6 +120,22 @@ function insertEntry(record, showId = false) {
   let idPrefix = showId ? `${id}: ` : "";
   content.textContent = `${idPrefix} ${value} (${time})`;
 
+  while (true) {
+    let gotLink = content.lastChild.textContent.match(/^(.*?)(https?:\/\/[^" ]*[^" \.,\?!])(.*)$/);
+    if (gotLink === null) {
+      break;
+    }
+
+    content.lastChild.textContent = gotLink[1];
+
+    let link = document.createElement("a");
+    link.href = gotLink[2];
+    link.textContent = gotLink[2];
+    content.appendChild(link);
+
+    content.appendChild(document.createTextNode(gotLink[3]));
+  }
+
   if (!deleted) {
     let remove = document.createElement("span");
     remove.className = "deleter";
