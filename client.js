@@ -12,7 +12,7 @@ class FirebaseClient {
         this.close("reconnect");
       }
       // Fetch only newest records to avoid fetching everything.
-      this._sse = new EventSource(this.url + ".json?orderBy=\"$priority\"&limitToLast=2");
+      this._sse = new EventSource(this.url + ".json?orderBy=\"timestamp\"&limitToLast=1");
       for (let eventName of this.EVENTS) {
         this._sse.addEventListener(eventName, this._onEvent.bind(this, eventName));
       }
@@ -89,18 +89,17 @@ class FirebaseClient {
     return this._update("DELETE", path, null);
   }
 
-  _update(method, path, body) {
+  _update(method, path, value) {
     if (method === "DELETE") {
-      if (body !== null) {
-        throw new Error("No body expected for .delete()");
+      if (value !== null) {
+        throw new Error("No value expected for .delete()");
       }
-    } else if (! body || typeof body != "object") {
-      throw new Error("JSON body expected");
     }
     let url = this._makeUrl(path);
-    // Include the server timestamp in the special priority field on new records.
-    body[".priority"] = { ".sv": "timestamp" };
-    return this._request(method, url, JSON.stringify(body));
+    return this._request(method, url, JSON.stringify({
+      timestamp: { ".sv": "timestamp" },
+      value
+    }));
   }
 
   _request(method, url, body) {
@@ -148,7 +147,7 @@ FirebaseClient.prototype.EVENTS = ['put', 'patch'];
  * sample code
  */
 
-let baseUrl = 'https://blinding-fire-8842.firebaseio.com/client-test';
+let baseUrl = 'https://blinding-fire-8842.firebaseio.com/client-test2';
 
 let client = new FirebaseClient(baseUrl);
 client.on("put", write.bind(null, "->put"));
@@ -167,6 +166,182 @@ function write() {
   el.textContent = `${c}\n${el.textContent}`;
 }
 
-client.connect().then(() => {
-  write("connected", client._sse.readyState);
-});
+
+class LoopFirebaseServer {
+  constructor(url) {
+    this._client = client;
+    this._clockSkew = 0;
+    this._live = false;
+    this._handlers = {};
+
+    this.update("meta", "lastConnect").then(({ timestamp }) => {
+      this._clockSkew = timestamp - Date.now();
+    });
+
+    this._client.connect().then(() => {
+      write("connected", this._client._sse.readyState);
+      this._live = true;
+      this._emit("connect");
+    });
+
+    this._client.on("put", ({ data, path }) => {
+      // Ignore initial put from connecting.
+      if (path === "/") {
+        return;
+      }
+
+      // Remove the leading "/" from the path.
+      let key = path.slice(1);
+      this._emit("update", this._formatRecord(key, data));
+    });
+  }
+
+  /**
+   * Get the maximum query limit value: 2^31 - 1.
+   */
+  get MAX_LIMIT() {
+    return 2147483647;
+  }
+
+  /**
+   * Convert an object with key/value pairs into a query string.
+   */
+  _buildQuery(object) {
+    return Object.keys(object).map(key => `${key}=${object[key]}`).join("&");
+  }
+
+  /**
+   * Format a single record splitting out the type and id.
+   */
+  _formatRecord(key, record) {
+    let [, type, id] = key.match(/^([^!]+)!(.+)$/);
+    return Object.assign(record, { id, type });
+  }
+
+  /**
+   * Get a callback that formats multiple records.
+   */
+  get _recordsFormatter() {
+    return records => {
+      if (records == null) {
+        return [];
+      }
+      return Object.keys(records).map(key => this._formatRecord(key, records[key]));
+    };
+  }
+
+  requestRoomData() {
+    // Get all records with keys after "chat".
+    let query = this._buildQuery({
+      orderBy: `"$key"`,
+      startAt: `"chat~"`,
+      // Always have a limit to get things sorted correctly.
+      limitToLast: this.MAX_LIMIT
+    });
+    return this._client.get("", query).then(this._recordsFormatter);
+  }
+
+  requestChat(startTime = 0, endTime = this.getServerTime(), limit = 0) {
+    let query = this._buildQuery({
+      format: "export",
+      orderBy: `"$key"`,
+      // Fudge the time a little to get an inclusive range with the random parts.
+      startAt: `"chat!${this.makeId(Math.max(0, startTime - 1))}"`,
+      endAt: `"chat!${this.makeId(endTime + 1)}"`,
+      // Always have a limit to get things sorted correctly.
+      limitToLast: limit > 0 ? limit : this.MAX_LIMIT
+    });
+    return this._client.get("", query).then(this._recordsFormatter);
+  }
+
+  /**
+   * Generate an id based on the time.
+   * https://gist.github.com/mikelehen/3596a30bd69384624c11
+   */
+  makeId(time = Date.now()) {
+    if (this.makeId.CHARS === undefined) {
+      Object.assign(this.makeId, {
+        CHARS: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~",
+        lastRandChars: [],
+        lastTime: 0
+      });
+    }
+
+    let duplicateTime = time === this.makeId.lastTime;
+    this.makeId.lastTime = time;
+
+    let timeStampChars = [];
+    for (let i = 7; i >= 0; i--) {
+      timeStampChars.unshift(this.makeId.CHARS.charAt(time % 64));
+      time = Math.floor(time / 64);
+    }
+    if (time !== 0) {
+      throw new Error("We should have converted the entire timestamp.");
+    }
+
+    let id = timeStampChars.join("");
+    if (duplicateTime) {
+      let i = 11;
+      for (; i >= 0 && this.makeId.lastRandChars[i] === 63; i--) {
+        this.makeId.lastRandChars[i] = 0;
+      }
+      this.makeId.lastRandChars[i]++;
+    }
+    else {
+      for (let i = 0; i < 12; i++) {
+        this.makeId.lastRandChars[i] = Math.floor(Math.random() * 64);
+      }
+    }
+    for (let i = 0; i < 12; i++) {
+      id += this.makeId.CHARS.charAt(this.makeId.lastRandChars[i]);
+    }
+    if (id.length !== 20) {
+      throw new Error("Length should be 20.");
+    }
+
+    return id;
+  }
+
+  /**
+   * Get the server time for a local time or now.
+   */
+  getServerTime(time = Date.now()) {
+    return this._clockSkew + time;
+  }
+
+  get live() {
+    return this._live;
+  }
+
+  update(type, id, value) {
+    let key = `${type}!${id}`;
+    return this._client.put(key, value).then(result => {
+      return this._formatRecord(key, result);
+    });
+  }
+
+  delete(type, id) {
+    return this.update(type, id);
+  }
+
+  on(eventName, callback) {
+    if (eventName in this._handlers) {
+      this._handlers[eventName].push(callback);
+    } else {
+      this._handlers[eventName] = [callback];
+    }
+  }
+
+  off(eventName, callback) {
+    let l = this._handlers[eventName] || [];
+    if (l.includes(callback)) {
+      l.splice(l.indexOf(callback), 1);
+    }
+  }
+
+  _emit(eventName, argument) {
+    for (let callback of this._handlers[eventName] || []) {
+      callback(argument);
+    }
+  }
+}

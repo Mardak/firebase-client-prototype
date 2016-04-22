@@ -8,17 +8,28 @@ p {
   margin: 0;
 }
 #chat,
+#meta,
 #output,
-#page {
+#page,
+#participant {
   border: 1px solid black;
   max-height: 200px;
   min-height: 1em;
   margin-bottom: 1em;
   overflow: auto;
 }
+
+.deleter {
+  cursor: pointer;
+  margin: 0 5px;
+}
   </style>
 </head>
 <body>
+  <p>
+    Your participant id:
+    <span id="participant-id"></span>
+  </p>
   <div>
     <input id="room-name"/>
     <button id="set-name">set room name</button>
@@ -28,86 +39,120 @@ p {
     <button id="add-chat">add chat</button>
     <button id="add-page">add page</button>
   </div>
-  <div>
-    <button id="load-chat">load all chats</button>
-    <button id="load-page">load all pages</button>
-  </div>
   <br/>
 
-  Results:
-  <pre id="output"></pre>
+  <div>
+    <button id="load-chat">load all chats</button>
+  </div>
   Chat messages:
   <div id="chat"></div>
   Pages:
   <div id="page"></div>
+  Participants:
+  <div id="participant"></div>
+  Metas:
+  <div id="meta"></div>
+
+  SSE/EventSource output:
+  <pre id="output"></pre>
 
   <script>
+let lfs = new LoopFirebaseServer();
+lfs.on("update", processRecord);
+lfs.on("connect", () => {
+  lfs.requestRoomData().then(processRecord);
+  let now = lfs.getServerTime();
+  lfs.requestChat(now - 24*60*60*1000, now, 5).then(processRecord);
+
+  if (localStorage.pid === undefined) {
+    localStorage.pid = lfs.makeId();
+  }
+  document.getElementById("participant-id").textContent = localStorage.pid;
+  lfs.update("participant", localStorage.pid);
+});
+
 document.getElementById("set-name").addEventListener("click", () => {
   let {value} = document.getElementById("room-name");
-  console.log("set room", value);
-  client.put("roomName", { value });
+  lfs.update("meta", "roomName", value);
 });
 
 function handleAdd(event) {
   let type = event.target.id.split("-")[1];
   let {value} = document.getElementById("message");
-  console.log("adding", type, value);
-  client.post("", { type, value });
+  lfs.update(type, lfs.makeId(), value);
 }
 document.getElementById("add-chat").addEventListener("click", handleAdd);
 document.getElementById("add-page").addEventListener("click", handleAdd);
 
-function handleLoad(event) {
-  let type = event.target.id.split("-")[1];
-  console.log("loading", type);
-  client.get("", `format=export&orderBy="type"&equalTo="${type}"`).then(records => {
-    document.getElementById(type).textContent = "";
-    Object.values(records).sort((a, b) => {
-      return a[".priority"] - b[".priority"];
-    }).forEach(insertEntry);
+function handleLoadChat() {
+  lfs.requestChat().then(records => {
+    document.getElementById("chat").textContent = "";
+    records.forEach(r => insertEntry(r));
   });
 }
-document.getElementById("load-chat").addEventListener("click", handleLoad);
-document.getElementById("load-page").addEventListener("click", handleLoad);
+document.getElementById("load-chat").addEventListener("click", handleLoadChat);
 
-function insertEntry(record) {
-  let {type, value} = record;
-  console.log("insert", type, value);
-  if (type.search(/^(chat|page)$/) == -1) {
+function insertEntry(record, showId = false) {
+  let {id, timestamp, type, value} = record;
+  if (type.search(/^(chat|meta|page|participant)$/) === -1) {
     return;
   }
 
-  let time = new Date(record[".priority"]).toLocaleString();
-  let content = document.createElement("p");
-  content.textContent = `${value} (${time})`;
-  let parent = document.getElementById(type);
-  parent.insertBefore(content, parent.firstChild);
-}
+  let deleted = false;
+  if (value === undefined) {
+    if (type.search(/^(meta|participant)$/) === 0) {
+      value = `(empty ${type} record)`;
+    }
+    else {
+      value = `this ${type} was \u274c deleted!`;
+      deleted = true;
+    }
+  }
 
-function processRecord(path, record) {
-  console.log("process", path, record);
-  switch (path) {
-    case "":
-      // Recursively process initial load.
-      Object.entries(record).forEach(([path, record]) => {
-        processRecord(path, record);
-      });
-      break;
+  let time = new Date(timestamp).toLocaleString();
+  let content = document.getElementById(id);
+  if (!content) {
+    content = document.createElement("p");
+    content.id = id;
+    let parent = document.getElementById(type);
+    parent.insertBefore(content, parent.firstChild);
+  }
+  let idPrefix = showId ? `${id}: ` : "";
+  content.textContent = `${idPrefix} ${value} (${time})`;
 
-    case "roomName":
-      document.getElementById("room-name").value = record.value;
-      break;
-
-    default:
-      insertEntry(record);
-      break;
+  if (!deleted) {
+    let remove = document.createElement("span");
+    remove.className = "deleter";
+    remove.textContent = "\u274C";
+    content.appendChild(remove);
+    remove.addEventListener("click", () => {
+      lfs.delete(type, id);
+    });
   }
 }
 
-client.on("put", ({ data, path }) => {
-  // Remove the leading "/" character.
-  processRecord(path.slice(1), data);
-});
+function processRecord(record) {
+  if (Array.isArray(record)) {
+    record.forEach(processRecord);
+    return;
+  }
+  switch (record.type) {
+    case "chat":
+    case "page":
+      insertEntry(record);
+      break;
+
+    case "meta":
+    case "participant":
+      insertEntry(record, true);
+      switch (record.id) {
+        case "roomName":
+          document.getElementById("room-name").value = record.value;
+          break;
+      }
+      break;
+  }
+}
   </script>
 </body>
 </html>
