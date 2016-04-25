@@ -157,7 +157,8 @@ client.on("close", write.bind(null, "(close)"));
 function write() {
   let el = document.getElementById("output");
   let c = new Date().toLocaleTimeString() + ": ";
-  for (let a of arguments) {
+  let args = Array.prototype.slice.call(arguments);
+  for (let a of args) {
     if (! a || typeof a != "string") {
       a = JSON.stringify(a);
     }
