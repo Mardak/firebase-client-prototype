@@ -62,12 +62,14 @@ p {
   <pre id="output"></pre>
 
   <script>
+let participants = new Map();
 let lfs = new LoopFirebaseServer();
 lfs.on("update", processRecord);
 lfs.on("connect", () => {
-  lfs.requestRoomData().then(processRecord);
-  let now = lfs.getServerTime();
-  lfs.requestChat(now - 24*60*60*1000, now, 5).then(processRecord);
+  lfs.requestRoomData().then(processRecord).then(() => {
+    let now = lfs.getServerTime();
+    lfs.requestChat(now - 24*60*60*1000, now, 25).then(processRecord);
+  });
 
   if (localStorage.pid === undefined) {
     localStorage.pid = lfs.makeId();
@@ -174,7 +176,6 @@ function insertEntry(record, showId = false) {
   }
 }
 
-let participants = new Map();
 function processRecord(record) {
   if (Array.isArray(record)) {
     record.forEach(processRecord);
