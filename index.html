@@ -29,6 +29,9 @@ p {
   <p>
     Your participant id:
     <span id="participant-id"></span>
+    and name:
+    <span id="participant-name"></span>
+    <button id="generate-name">generate new name</button>
   </p>
   <div>
     <input id="room-name"/>
@@ -67,8 +70,18 @@ lfs.on("connect", () => {
   if (localStorage.pid === undefined) {
     localStorage.pid = lfs.makeId();
   }
+  if (localStorage.pname === undefined) {
+    localStorage.pname = makeName();
+  }
   document.getElementById("participant-id").textContent = localStorage.pid;
-  lfs.update("participant", localStorage.pid);
+  document.getElementById("participant-name").textContent = localStorage.pname;
+  lfs.update("participant", localStorage.pid, localStorage.pname);
+});
+
+document.getElementById("generate-name").addEventListener("click", () => {
+  localStorage.pname = makeName();
+  document.getElementById("participant-name").textContent = localStorage.pname;
+  lfs.update("participant", localStorage.pid, localStorage.pname);
 });
 
 document.getElementById("set-name").addEventListener("click", () => {
@@ -168,6 +181,14 @@ function processRecord(record) {
       }
       break;
   }
+}
+
+const adjectives = "accomplished,adept,appreciative,blithe,bouncy,bubbly,caring,cautious,cultured,dependable,desirable,devoted,easygoing,eloquent,exuberant,forgiving,fortunate,friendly,generous,genial,glad,hardworking,hearty,helpful,illustrious,intelligent,inventive,jaunty,jolly,judicious,keen,kind,knowledgeable,learned,lenient,literate,master,merciful,meticulous,natty,nice,nurturing,obedient,objective,observant,patient,perky,proficient,qualified,quality,quirky,rational,reasonable,responsible,sagacious,sane,supportive,tactful,tireless,tolerant,unbiased,understanding,upbeat,vigilant,virtuous,vocal,watchful,wacky,wholesome,xanthous,xenial,xenodochial,yogic,young,youthful,zealous,zesty,zany".split(",");
+const nouns = "afador,akita,ausky,barbet,beagle,bowzer,carkie,chichi,collie,daniff,dingo,dogo,elkkee,eskland,ewokian,feist,fochon,frengle,glechon,gollie,greyhound,harrier,hound,husky,ibizan,imoinu,istrian,jachon,jindo,jug,kimola,kuvasz,kyileo,labbe,lhatese,lupo,mauzer,miki,mutt,neapolitan,norfolk,norwich,oldepit,oripei,otterhound,pitsky,plica,puggat,queensland,quinbrindle,quocridge,raggle,reagle,rottle,scoshi,shiba,silkin,taigan,tosa,toxirn,ultimate,ussel,utonagan,vanjari,vikhan,vizsla,wauzer,weston,woodle,xasheeler,xofhound,xoloitz,yoranian,yorkie,yorwich,zawakh,zoibor,zuchon".split(",");
+function makeName() {
+  let adjIndex = Math.floor(adjectives.length * Math.random());
+  let nounIndex = Math.floor(adjIndex / 3) * 3 + Math.floor(Math.random() * 3);
+  return `${adjectives[adjIndex]} ${nouns[nounIndex]}`;
 }
   </script>
 </body>
