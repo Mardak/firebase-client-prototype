@@ -92,7 +92,10 @@ document.getElementById("set-name").addEventListener("click", () => {
 function handleAdd(event) {
   let type = event.target.id.split("-")[1];
   let {value} = document.getElementById("message");
-  lfs.update(type, lfs.makeId(), value);
+  lfs.update(type, lfs.makeId(), {
+    content: value,
+    who: localStorage.pid
+  });
 }
 document.getElementById("add-chat").addEventListener("click", handleAdd);
 document.getElementById("add-page").addEventListener("click", handleAdd);
@@ -120,6 +123,9 @@ function insertEntry(record, showId = false) {
       value = `this ${type} was \u274c deleted!`;
       deleted = true;
     }
+  }
+  else if (type.search(/^(chat|page)$/) === 0) {
+    value = `${participants.get(value.who)}: ${value.content}`;
   }
 
   let time = new Date(timestamp).toLocaleString();
@@ -160,6 +166,7 @@ function insertEntry(record, showId = false) {
   }
 }
 
+let participants = new Map();
 function processRecord(record) {
   if (Array.isArray(record)) {
     record.forEach(processRecord);
@@ -171,8 +178,12 @@ function processRecord(record) {
       insertEntry(record);
       break;
 
-    case "meta":
     case "participant":
+      insertEntry(record, true);
+      participants.set(record.id, record.value);
+      break;
+
+    case "meta":
       insertEntry(record, true);
       switch (record.id) {
         case "roomName":
