@@ -36,6 +36,8 @@ p {
   <div>
     <input id="room-name"/>
     <button id="set-name">set room name</button>
+    last set by
+    <span id="room-name-who"></span>
   </div>
   <div>
     <input id="message"/>
@@ -86,7 +88,10 @@ document.getElementById("generate-name").addEventListener("click", () => {
 
 document.getElementById("set-name").addEventListener("click", () => {
   let {value} = document.getElementById("room-name");
-  lfs.update("meta", "roomName", value);
+  lfs.update("meta", "roomName", {
+    content: value,
+    who: localStorage.pid
+  });
 });
 
 function handleAdd(event) {
@@ -126,6 +131,9 @@ function insertEntry(record, showId = false) {
   }
   else if (type.search(/^(chat|page)$/) === 0) {
     value = `${participants.get(value.who)}: ${value.content}`;
+  }
+  else if (typeof value === "object") {
+    value = JSON.stringify(value);
   }
 
   let time = new Date(timestamp).toLocaleString();
@@ -187,7 +195,8 @@ function processRecord(record) {
       insertEntry(record, true);
       switch (record.id) {
         case "roomName":
-          document.getElementById("room-name").value = record.value;
+          document.getElementById("room-name").value = record.value.content;
+          document.getElementById("room-name-who").textContent = participants.get(record.value.who);
           break;
       }
       break;

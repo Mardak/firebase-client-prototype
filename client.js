@@ -238,7 +238,12 @@ class LoopFirebaseServer {
       // Always have a limit to get things sorted correctly.
       limitToLast: this.MAX_LIMIT
     });
-    return this._client.get("", query).then(this._recordsFormatter);
+    return this._client.get("", query).then(this._recordsFormatter).then(records => {
+      // Put participants first.
+      return records.sort((a, b) => {
+        return b.type === "participant";
+      });
+    });
   }
 
   requestChat(startTime = 0, endTime = this.getServerTime(), limit = 0) {
